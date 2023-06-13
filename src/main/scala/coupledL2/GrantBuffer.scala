@@ -199,6 +199,8 @@ class GrantBuffer(implicit p: Parameters) extends BaseGrantBuffer {
   TLArbiter.robin(edgeIn, io.d, out_bundles:_*)
 
   io.d_task.ready := !full
+  // TTODO: this is useless, cuz we back pressure at entrance when about to be full
+  // and this is always ready
 
   // GrantBuf should always be ready.
   // If not, block reqs at the entrance of the pipeline when GrantBuf is about to be full.
@@ -213,7 +215,14 @@ class GrantBuffer(implicit p: Parameters) extends BaseGrantBuffer {
   io.e_resp.respInfo.last := true.B
 
   if (cacheParams.enablePerf) {
-    XSPerfAccumulate(cacheParams, "grant_buffer_full", full)
+    for(i <- 0 until mshrsAll) {
+      val cntBlockEn = PopCount(block_valids) === i.U
+      XSPerfAccumulate(cacheParams, s"grant_buf_block_cnt_$i", cntBlockEn)
+    }
+    for(i <- 0 until sourceIdAll) {
+      val cntInflightGrantEn = PopCount(inflight_grant.map((_.valid))) === i.U
+      XSPerfAccumulate(cacheParams, s"grant_buf_inflight_cnt_$i", cntInflightGrantEn)
+    }
 
     val timers = RegInit(VecInit(Seq.fill(sourceIdAll){0.U(64.W)}))
     inflight_grant zip timers map {
