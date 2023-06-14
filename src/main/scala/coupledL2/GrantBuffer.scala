@@ -28,9 +28,9 @@ import coupledL2.utils.{XSPerfAccumulate, XSPerfHistogram, XSPerfMax}
 
 // used to block Probe upwards
 class InflightGrantEntry(implicit p: Parameters) extends L2Bundle {
-  val set   = UInt(setBits.W)
-  val tag   = UInt(tagBits.W)
-  val sink  = UInt(mshrBits.W)
+  val set    = UInt(setBits.W)
+  val tag    = UInt(tagBits.W)
+  val sink   = UInt(mshrBits.W)
 }
 
 abstract class BaseGrantBuffer(implicit p: Parameters) extends L2Module {
@@ -56,11 +56,44 @@ abstract class BaseGrantBuffer(implicit p: Parameters) extends L2Module {
       val blockMSHRReqEntrance = Bool()
     })
     val prefetchResp = prefetchOpt.map(_ => DecoupledIO(new PrefetchResp))
-    val grantStatus  = Output(Vec(sourceIdAll, new GrantStatus))
+    val grantStatus  = Output(Vec(grantBufInflightEntries, new GrantStatus))
   })
 
   io.l1Hint := DontCare
   io.globalCounter := DontCare
+
+
+  // sourceIdAll (= L1 Ids) entries
+  // Caution: blocks choose an empty entry to insert, which has #mshrsAll entries
+  // while inflight_grant use sourceId as index, which has #sourceIdAll entries
+  val inflight_grant = RegInit(VecInit(Seq.fill(grantBufInflightEntries){
+    0.U.asTypeOf(Valid(new InflightGrantEntry))
+  }))
+
+  io.grantStatus zip inflight_grant foreach {
+    case (g, i) =>
+      g.valid := i.valid
+      g.tag   := i.bits.tag
+      g.set   := i.bits.set
+  }
+
+  when (io.d_task.fire && io.d_task.bits.task.opcode(2, 1) === Grant(2, 1)) {
+    // choose an empty entry
+    val insertIdx = PriorityEncoder(inflight_grant.map(!_.valid))
+    val entry = inflight_grant(insertIdx)
+    entry.valid := true.B
+    entry.bits.set    := io.d_task.bits.task.set
+    entry.bits.tag    := io.d_task.bits.task.tag
+    entry.bits.sink   := io.d_task.bits.task.mshrId
+  }
+  when (io.e.fire) {
+    // compare sink to clear buffer
+    val sinkMatchVec = inflight_grant.map(g => g.valid && g.bits.sink === io.e.bits.sink)
+    assert(PopCount(sinkMatchVec) === 1.U, "GrantBuf: there must be one and only one match")
+    val bufIdx = OHToUInt(sinkMatchVec)
+    inflight_grant(bufIdx).valid := false.B
+  }
+
 }
 
 // Communicate with L1
@@ -76,36 +109,6 @@ class GrantBuffer(implicit p: Parameters) extends BaseGrantBuffer {
   val dataAll = Reg(Vec(mshrsAll, new DSBlock))
   val full = block_valids.andR
   val selectOH = ParallelPriorityMux(~block_valids, (0 until mshrsAll).map(i => (1 << i).U))
-
-  // sourceIdAll (= L1 Ids) entries
-  // Caution: blocks choose an empty entry to insert, which has #mshrsAll entries
-  // while inflight_grant use sourceId as index, which has #sourceIdAll entries
-  val inflight_grant = RegInit(VecInit(Seq.fill(sourceIdAll){
-    0.U.asTypeOf(Valid(new InflightGrantEntry))
-  }))
-  io.grantStatus zip inflight_grant foreach {
-    case (g, i) =>
-      g.valid := i.valid
-      g.tag    := i.bits.tag
-      g.set    := i.bits.set
-  }
-
-  when (io.d_task.fire && io.d_task.bits.task.opcode(2, 1) === Grant(2, 1)) {
-    // choose an empty entry
-    val insertIdx = io.d_task.bits.task.sourceId
-    val entry = inflight_grant(insertIdx)
-    entry.valid := true.B
-    entry.bits.set   := io.d_task.bits.task.set
-    entry.bits.tag   := io.d_task.bits.task.tag
-    entry.bits.sink  := io.d_task.bits.task.mshrId
-  }
-  when (io.e.fire) {
-    // compare sink to clear buffer
-    val sinkMatchVec = inflight_grant.map(g => g.valid && g.bits.sink === io.e.bits.sink)
-    assert(PopCount(sinkMatchVec) === 1.U, "GrantBuf: there must be one and only one match")
-    val bufIdx = OHToUInt(sinkMatchVec)
-    inflight_grant(bufIdx).valid := false.B
-  }
 
   // handle capacity conflict of GrantBuffer
   // count the number of valid blocks + those in pipe that might use GrantBuf
@@ -198,9 +201,9 @@ class GrantBuffer(implicit p: Parameters) extends BaseGrantBuffer {
 
   TLArbiter.robin(edgeIn, io.d, out_bundles:_*)
 
-  io.d_task.ready := !full
   // TTODO: this is useless, cuz we back pressure at entrance when about to be full
   // and this is always ready
+  io.d_task.ready := !full
 
   // GrantBuf should always be ready.
   // If not, block reqs at the entrance of the pipeline when GrantBuf is about to be full.
@@ -219,7 +222,7 @@ class GrantBuffer(implicit p: Parameters) extends BaseGrantBuffer {
       val cntBlockEn = PopCount(block_valids) === i.U
       XSPerfAccumulate(cacheParams, s"grant_buf_block_cnt_$i", cntBlockEn)
     }
-    for(i <- 0 until sourceIdAll) {
+    for(i <- 0 until mshrsAll) {
       val cntInflightGrantEn = PopCount(inflight_grant.map((_.valid))) === i.U
       XSPerfAccumulate(cacheParams, s"grant_buf_inflight_cnt_$i", cntInflightGrantEn)
     }

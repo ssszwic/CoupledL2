@@ -55,7 +55,7 @@ trait HasCoupledL2Parameters {
   // 1 cycle for sram read, and latch for another cycle
   val sramLatency = 2
 
-  val releaseBufWPorts = 3 // sinkC and mainpipe s5, s6
+  val releaseBufWPorts = 3
   
   // Prefetch
   val prefetchOpt = cacheParams.prefetch
@@ -63,7 +63,6 @@ trait HasCoupledL2Parameters {
   val topDownOpt = if(cacheParams.elaboratedTopDown) Some(true) else None
 
   val useFIFOGrantBuffer = true
-
   val hintCycleAhead = 2 // how many cycles the hint will send before grantData
 
   lazy val edgeIn = p(EdgeInKey)
@@ -81,6 +80,8 @@ trait HasCoupledL2Parameters {
   // id of 0XXXX refers to mshrId
   // id of 1XXXX refers to reqs that do not enter mshr
   // require(isPow2(idsAll))
+  val grantBufBlocks = mshrsAll // TTODO: replace this
+  val grantBufInflightEntries = mshrsAll //TTODO: excessive or enough?
 
   // width params with bank idx (used in prefetcher / ctrl unit)
   lazy val fullAddressBits = edgeOut.bundle.addressBits
