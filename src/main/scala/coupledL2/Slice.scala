@@ -66,6 +66,9 @@ class Slice()(implicit p: Parameters) extends L2Module with DontCareInnerLogic {
   reqArb.io.ASet := a_reqBuf.io.ASet
 
   reqArb.io.sinkB <> sinkB.io.task
+  reqArb.io.BTag := sinkB.io.BTag
+  reqArb.io.BSet := sinkB.io.BSet
+
   reqArb.io.sinkC <> sinkC.io.toReqArb
   reqArb.io.dirRead_s1 <> directory.io.read
   reqArb.io.taskToPipe_s2 <> mainPipe.io.taskFromArb_s2

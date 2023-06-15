@@ -28,6 +28,9 @@ class SinkB(implicit p: Parameters) extends L2Module {
   val io = IO(new Bundle() {
     val b = Flipped(DecoupledIO(new TLBundleB(edgeIn.bundle)))
     val task = DecoupledIO(new TaskBundle)
+
+    val BTag = Output(UInt(tagBits.W))
+    val BSet = Output(UInt(setBits.W))
   })
 
   def fromTLBtoTaskBundle(b: TLBundleB): TaskBundle = {
@@ -49,7 +52,18 @@ class SinkB(implicit p: Parameters) extends L2Module {
     task
   }
 
-  io.task.valid := io.b.valid
-  io.task.bits  := fromTLBtoTaskBundle(io.b.bits)
-  io.b.ready := io.task.ready
+  val bTask = fromTLBtoTaskBundle(io.b.bits)
+  // grantBuf BlockB logic is complicated, thus having timing issues
+  // we have to latch one cycle for fromGrantBuffer.blockSinkReqEntrance.blockB_s1 in ReqArb
+  // so we need to give BTag and BSet one cycle ahead of BTask
+  val queue = Module(new Queue(new TaskBundle, 1))
+  queue.io.enq.valid := io.b.valid
+  queue.io.enq.bits := bTask
+  io.b.ready := queue.io.enq.ready
+
+  io.task <> queue.io.deq
+
+  // if B req is stalled in Queue, we should use BTag and BSet of the Queue instead of io.b
+  io.BTag := Mux(io.b.ready, bTask.tag, queue.io.deq.bits.tag)
+  io.BSet := Mux(io.b.ready, bTask.set, queue.io.deq.bits.set)
 }
