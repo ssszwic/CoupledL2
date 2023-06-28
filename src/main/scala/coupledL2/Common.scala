@@ -60,9 +60,6 @@ class TaskBundle(implicit p: Parameters) extends L2Bundle with HasChannelBits {
   val aliasTask = aliasBitsOpt.map(_ => Bool()) // Anti-alias
   val useProbeData = Bool()               // data source, true for ReleaseBuf and false for RefillBuf
 
-  // For Put
-  val pbIdx = UInt(mshrBits.W)
-
   // For Intent
   val fromL2pft = prefetchOpt.map(_ => Bool()) // Is the prefetch req from L2(BOP) or from L1 prefetch?
                                           // If true, MSHR should send an ack to L2 prefetcher.
@@ -115,7 +112,6 @@ class MSHRStatus(implicit p: Parameters) extends L2Bundle with HasChannelBits {
   val aliasTask = aliasBitsOpt.map(_ => Bool())
   val nestB = Bool()
   val needProbeAckData = Bool() // only for B reqs
-  val pbIdx = UInt(mshrBits.W)
   val w_c_resp = Bool()
   val w_d_resp = Bool()
   val w_e_resp = Bool()
@@ -200,7 +196,6 @@ class SourceAReq(implicit p: Parameters) extends L2Bundle {
   val param = UInt(aWidth.W)
   val size = UInt(msgSizeBits.W)
   val source = UInt(mshrBits.W)
-  val pbIdx = UInt(mshrBits.W)
   val reqSource = UInt(MemReqSource.reqSourceBits.W)
 }
 
@@ -226,17 +221,6 @@ class NestedWriteback(implicit p: Parameters) extends L2Bundle {
   val b_toB = Bool()
   val b_clr_dirty = Bool()
   val c_set_dirty = Bool()
-}
-
-// Put Buffer
-class PutBufferRead(implicit p: Parameters) extends L2Bundle {
-  val idx = UInt(mshrBits.W)
-  val count = UInt(beatBits.W)
-}
-
-class PutBufferEntry(implicit p: Parameters) extends L2Bundle {
-  val data = new DSBeat
-  val mask = UInt(beatBytes.W)
 }
 
 class PrefetchRecv extends Bundle {
