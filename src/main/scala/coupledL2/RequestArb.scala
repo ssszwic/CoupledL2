@@ -29,16 +29,22 @@ class RequestArb(implicit p: Parameters) extends L2Module {
   val io = IO(new Bundle() {
     /* receive incoming tasks */
     val sinkA    = Flipped(DecoupledIO(new TaskBundle))
-    val ATag     = Input(UInt(tagBits.W)) // !TODO: very dirty, consider optimize structure
-    val ASet     = Input(UInt(setBits.W)) // To pass A entrance status to MP for blockA-info of ReqBuf
-    val sinkEntrance = ValidIO(new L2Bundle {
+    val sinkB    = Flipped(DecoupledIO(new TaskBundle))
+    val sinkC    = Flipped(DecoupledIO(new TaskBundle))
+    val mshrTask = Flipped(DecoupledIO(new TaskBundle))
+
+    /* handling Blocking A */
+    val ATag     = Input(UInt(tagBits.W)) // To pass A entrance status to MP, then calculate blockA-info and return to ReqBuf
+    val ASet     = Input(UInt(setBits.W)) // !TODO: very dirty, consider optimize structure
+
+    val sinkEntrance = ValidIO(new L2Bundle { // B & C entrance to blockA
       val tag = UInt(tagBits.W)
       val set = UInt(setBits.W)
     })
 
-    val sinkB    = Flipped(DecoupledIO(new TLBundleB(edgeOut.bundle)))
-    val sinkC    = Flipped(DecoupledIO(new TaskBundle))
-    val mshrTask = Flipped(DecoupledIO(new TaskBundle))
+    /* handling Blocking B (this extra logic is for timing consideration) */
+    val BTag = Input(UInt(tagBits.W))
+    val BSet = Input(UInt(setBits.W))
 
     /* read/write directory */
     val dirRead_s1 = DecoupledIO(new DirRead())  // To directory, read meta/tag
@@ -75,8 +81,10 @@ class RequestArb(implicit p: Parameters) extends L2Module {
   when(resetIdx === 0.U) {
     resetFinish := true.B
   }
-  // val valids = RegInit(0.U(8.W))  // 7 stages
 
+  // task_s1 is [wire] to task_s2[reg]
+  val task_s1 = WireInit(0.U.asTypeOf(Valid(new TaskBundle)))
+  val task_s2 = RegInit(0.U.asTypeOf(Valid(new TaskBundle)))
   /* ======== Stage 0 ======== */
   io.mshrTask.ready := !io.fromGrantBuffer.blockMSHRReqEntrance
   val mshr_task_s0 = Wire(Valid(new TaskBundle()))
@@ -84,27 +92,6 @@ class RequestArb(implicit p: Parameters) extends L2Module {
   mshr_task_s0.bits := io.mshrTask.bits
 
   /* ======== Stage 1 ======== */
-  /* Task generation and pipelining */
-  def fromTLBtoTaskBundle(b: TLBundleB): TaskBundle = {
-    val task = Wire(new TaskBundle)
-    task := DontCare
-    task.channel := "b010".U
-    task.tag := parseAddress(b.address)._1
-    task.set := parseAddress(b.address)._2
-    task.off := parseAddress(b.address)._3
-    task.alias.foreach(_ := 0.U)
-    task.opcode := b.opcode
-    task.param := b.param
-    task.size := b.size
-    task.needProbeAckData := b.data(0) // TODO: parameterize this
-    task.mshrTask := false.B
-    task.fromL2pft.foreach(_ := false.B)
-    task.needHint.foreach(_ := false.B)
-    task.wayMask := Fill(cacheParams.ways, "b1".U)
-    task.reqSource := MemReqSource.NoWhere.id.U // Ignore
-    task
-  }
-
   /* latch mshr_task from s0 to s1 */
   val mshr_task_s1 = RegInit(0.U.asTypeOf(Valid(new TaskBundle())))
   mshr_task_s1.valid := mshr_task_s0.valid
@@ -114,10 +101,13 @@ class RequestArb(implicit p: Parameters) extends L2Module {
 
   /* Channel interaction from s1 */
   val A_task = io.sinkA.bits
-  val B_task = fromTLBtoTaskBundle(io.sinkB.bits)
+  val B_task = io.sinkB.bits
   val C_task = io.sinkC.bits
   val block_A = io.fromMSHRCtl.blockA_s1 || io.fromMainPipe.blockA_s1 || io.fromGrantBuffer.blockSinkReqEntrance.blockA_s1
-  val block_B = io.fromMSHRCtl.blockB_s1 || io.fromMainPipe.blockB_s1 || io.fromGrantBuffer.blockSinkReqEntrance.blockB_s1
+  val block_B = io.fromMSHRCtl.blockB_s1 ||
+    task_s2.valid && task_s2.bits.set === B_task.set ||
+    RegNext(io.fromMainPipe.blockB_s1) ||
+    RegNext(io.fromGrantBuffer.blockSinkReqEntrance.blockB_s1, false.B)
   val block_C = io.fromMSHRCtl.blockC_s1 || io.fromMainPipe.blockC_s1 || io.fromGrantBuffer.blockSinkReqEntrance.blockC_s1
 
   val sinkValids = VecInit(Seq(
@@ -137,7 +127,7 @@ class RequestArb(implicit p: Parameters) extends L2Module {
 
   // mshr_task_s1 is s1_[reg]
   // task_s1 is [wire] to s2_reg
-  val task_s1 = Mux(mshr_task_s1.valid, mshr_task_s1, chnl_task_s1)
+  task_s1 := Mux(mshr_task_s1.valid, mshr_task_s1, chnl_task_s1)
 
   io.taskInfo_s1 := mshr_task_s1
 
@@ -157,7 +147,6 @@ class RequestArb(implicit p: Parameters) extends L2Module {
   io.sinkEntrance.bits.set  := Mux(io.sinkC.fire, C_task.set, B_task.set)
 
   /* ========  Stage 2 ======== */
-  val task_s2 = RegInit(0.U.asTypeOf(task_s1))
   task_s2.valid := task_s1.valid
   when(task_s1.valid) { task_s2.bits := task_s1.bits }
   
@@ -185,8 +174,8 @@ class RequestArb(implicit p: Parameters) extends L2Module {
   require(beatSize == 2)
 
   /* status of each pipeline stage */
-  io.status_s1.sets := VecInit(Seq(C_task.set, B_task.set, io.ASet))
-  io.status_s1.tags := VecInit(Seq(C_task.tag, B_task.tag, io.ATag))
+  io.status_s1.sets := VecInit(Seq(C_task.set, io.BSet, io.ASet))
+  io.status_s1.tags := VecInit(Seq(C_task.tag, io.BTag, io.ATag))
   require(io.status_vec.size == 2)
   io.status_vec.zip(Seq(task_s1, task_s2)).foreach {
     case (status, task) =>

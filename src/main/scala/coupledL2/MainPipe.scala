@@ -147,7 +147,6 @@ class MainPipe(implicit p: Parameters) extends L2Module {
   val req_acquireBlock_s3   = sinkA_req_s3 && req_s3.opcode === AcquireBlock
   val req_prefetch_s3       = sinkA_req_s3 && req_s3.opcode === Hint
   val req_get_s3            = sinkA_req_s3 && req_s3.opcode === Get
-  val req_put_s3            = sinkA_req_s3 && (req_s3.opcode === PutFullData || req_s3.opcode === PutPartialData)
 
   val mshr_grant_s3         = mshr_req_s3 && req_s3.fromA && req_s3.opcode(2, 1) === Grant(2, 1) // Grant or GrantData from mshr
   val mshr_grantdata_s3     = mshr_req_s3 && req_s3.fromA && req_s3.opcode === GrantData
@@ -180,7 +179,7 @@ class MainPipe(implicit p: Parameters) extends L2Module {
   assert(RegNext(!(task_s3.valid && !mshr_req_s3 && dirResult_s3.hit && meta_s3.state === TRUNK && !meta_s3.clients.orR)),
           "Trunk should have some client hit")
 
-  val need_mshr_s3_a = need_acquire_s3_a || need_probe_s3_a || cache_alias || req_put_s3
+  val need_mshr_s3_a = need_acquire_s3_a || need_probe_s3_a || cache_alias
   // For channel B reqs, alloc mshr when Probe hits in both self and client dir
   val need_mshr_s3_b = dirResult_s3.hit && req_s3.fromB &&
     !(meta_s3.state === BRANCH && req_s3.param === toB) &&
@@ -211,7 +210,6 @@ class MainPipe(implicit p: Parameters) extends L2Module {
   ms_task.needProbeAckData := req_s3.needProbeAckData
   ms_task.aliasTask.foreach(_ := cache_alias)
   ms_task.useProbeData     := false.B
-  ms_task.pbIdx            := req_s3.pbIdx
   ms_task.fromL2pft.foreach(_ := req_s3.fromL2pft.get)
   ms_task.needHint.foreach(_  := req_s3.needHint.get)
   ms_task.way              := dirResult_s3.way
@@ -313,7 +311,7 @@ class MainPipe(implicit p: Parameters) extends L2Module {
   // B: need_write_refillBuf when L1 AcquireBlock BtoT
   //    L2 sends AcquirePerm to L3, so GrantData to L1 needs to read DS ahead of time and store in RefillBuffer
   // TODO: how about AcquirePerm BtoT interaction with refill buffer?
-  val need_write_refillBuf = sinkA_req_s3 && req_needT_s3 && dirResult_s3.hit && meta_s3.state === BRANCH && !req_put_s3 && !req_prefetch_s3
+  val need_write_refillBuf = sinkA_req_s3 && req_needT_s3 && dirResult_s3.hit && meta_s3.state === BRANCH && !req_prefetch_s3
 
   /* ======== Write Directory ======== */
   val metaW_valid_s3_a    = sinkA_req_s3 && !need_mshr_s3_a && !req_get_s3 && !req_prefetch_s3 // get & prefetch that hit will not write meta
@@ -523,7 +521,7 @@ class MainPipe(implicit p: Parameters) extends L2Module {
 
   io.toReqArb.blockC_s1 :=
     task_s2.valid && task_s2.bits.set === io.fromReqArb.status_s1.c_set ||
-    io.toMSHRCtl.mshr_alloc_s3.valid && task_s3.bits.set === io.fromReqArb.status_s1.c_set
+    task_s3.valid && task_s3.bits.set === io.fromReqArb.status_s1.c_set
   io.toReqArb.blockB_s1 :=
     task_s2.valid && pipelineBlock('b', task_s2.bits, allTask = true) ||
     task_s3.valid && pipelineBlock('b', task_s3.bits)                 ||
@@ -558,7 +556,7 @@ class MainPipe(implicit p: Parameters) extends L2Module {
   // ! Caution: s_ and w_ are false-as-valid
   when(req_s3.fromA) {
     alloc_state.s_refill := false.B
-    alloc_state.w_grantack := req_prefetch_s3 || req_get_s3 || req_put_s3
+    alloc_state.w_grantack := req_prefetch_s3 || req_get_s3
     // need replacement
     when(a_need_replacement) {
       alloc_state.w_releaseack := false.B
@@ -575,7 +573,7 @@ class MainPipe(implicit p: Parameters) extends L2Module {
       assert(alloc_state.s_acquire || alloc_state.s_release)
     }
     // need Acquire downwards
-    when(need_acquire_s3_a || req_put_s3) {
+    when(need_acquire_s3_a) {
       alloc_state.s_acquire := false.B
       alloc_state.w_grantfirst := false.B
       alloc_state.w_grantlast := false.B
@@ -646,11 +644,11 @@ class MainPipe(implicit p: Parameters) extends L2Module {
   XSPerfAccumulate(cacheParams, "b_req_miss", miss_s3 && req_s3.fromB)
 
   XSPerfHistogram(cacheParams, "a_req_access_way", perfCnt = dirResult_s3.way,
-    enable = task_s3.valid && !mshr_req_s3 && req_s3.fromA && !req_put_s3, start = 0, stop = cacheParams.ways, step = 1)
+    enable = task_s3.valid && !mshr_req_s3 && req_s3.fromA, start = 0, stop = cacheParams.ways, step = 1)
   XSPerfHistogram(cacheParams, "a_req_hit_way", perfCnt = dirResult_s3.way,
-    enable = hit_s3 && req_s3.fromA && !req_put_s3, start = 0, stop = cacheParams.ways, step = 1)
+    enable = hit_s3 && req_s3.fromA, start = 0, stop = cacheParams.ways, step = 1)
   XSPerfHistogram(cacheParams, "a_req_miss_way_choice", perfCnt = dirResult_s3.way,
-    enable = miss_s3 && req_s3.fromA && !req_put_s3, start = 0, stop = cacheParams.ways, step = 1)
+    enable = miss_s3 && req_s3.fromA, start = 0, stop = cacheParams.ways, step = 1)
 
   // pipeline stages for sourceC and sourceD reqs
   val sourceC_pipe_len = ParallelMux(Seq(
