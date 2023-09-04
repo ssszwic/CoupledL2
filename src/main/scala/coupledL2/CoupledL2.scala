@@ -299,9 +299,9 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
         RegNextN(data, n - 1)
     }
 
-    val hint_chosen = Wire(UInt(node.in.size.W))
-    val hint_fire = Wire(Bool())
-    val release_sourceD_condition = Wire(Vec(node.in.size, Bool()))
+    val hintChosen = Wire(UInt(banks.W))
+    val hintFire = Wire(Bool())
+    val releaseSourceD = Wire(Vec(banks, Bool()))
 
     val slices = node.in.zip(node.out).zipWithIndex.map {
       case (((in, edgeIn), (out, edgeOut)), i) =>
@@ -315,15 +315,15 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
             case SliceIdKey => i
           })) 
         }
-        val sourceD_can_go = RegNextN(!hint_fire || i.U === OHToUInt(hint_chosen), hintCycleAhead - 1)
-        release_sourceD_condition(i) := sourceD_can_go && !slice.io.in.d.valid
         slice.io.in <> in
         if(enableHintGuidedGrant) {
-          // If the hint of slice X is selected in T cycle, then in T + 3 cycle we will try our best to select the grant of slice X.
-          // If slice X has no grant in T + 3 cycle, it means that the hint of T cycle is wrong, so relax the restriction on grant selection.
-          // Timing will be worse if enabled
-          in.d.valid := slice.io.in.d.valid && (sourceD_can_go || Cat(release_sourceD_condition).orR)
-          slice.io.in.d.ready := in.d.ready && (sourceD_can_go || Cat(release_sourceD_condition).orR)
+          // If the hint of slice X is selected at cycle T, then at cycle T + 3 we will try our best to select the grant of slice X.
+          // If slice X has no grant at cycle T + 3, it means that the hint at cycle T is wrong, so relax the restriction on grant selection.
+          val sourceDCanGo = RegNextN(!hintFire || i.U === OHToUInt(hintChosen), hintCycleAhead - 1)
+          releaseSourceD(i) := sourceDCanGo && !slice.io.in.d.valid
+
+          in.d.valid := slice.io.in.d.valid && (sourceDCanGo || Cat(releaseSourceD).orR)
+          slice.io.in.d.ready := in.d.ready && (sourceDCanGo || Cat(releaseSourceD).orR)
         }
         in.b.bits.address := restoreAddress(slice.io.in.b.bits.address, i)
         out <> slice.io.out
@@ -359,23 +359,28 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
 
         slice
     }
-    val l1Hint_arb = Module(new Arbiter(new L2ToL1Hint(), slices.size))
-    val slices_l1Hint = slices.zipWithIndex.map {
-      case (s, i) => Pipeline(s.io.l1Hint, depth = 1, pipe = false, name = Some(s"l1Hint_buffer_$i"))
-    }
-    val (client_sourceId_match_oh, client_sourceId_start) = node.in.head._2.client.clients
-                                                          .map(c => {
-                                                                (c.sourceId.contains(l1Hint_arb.io.out.bits.sourceId).asInstanceOf[Bool], c.sourceId.start.U)
-                                                              })
-                                                          .unzip
-    l1Hint_arb.io.in <> VecInit(slices_l1Hint)
-    io.l2_hint.valid := l1Hint_arb.io.out.fire()
-    io.l2_hint.bits := l1Hint_arb.io.out.bits.sourceId - Mux1H(client_sourceId_match_oh, client_sourceId_start)
-    // always ready for grant hint
-    l1Hint_arb.io.out.ready := true.B
 
-    hint_chosen := l1Hint_arb.io.chosen
-    hint_fire := io.l2_hint.valid
+    if(enableHintGuidedGrant) {
+      val l1HintArb = Module(new Arbiter(new L2ToL1Hint(), slices.size))
+      val slices_l1Hint = slices.zipWithIndex.map {
+        case (s, i) => s.io.l1Hint // TODO: latch for timing consideration
+      }
+      // should only Hint for DCache
+      val (sourceIsDcache, dcacheSourceIdStart) = node.in.head._2.client.clients
+        .filter(_.supports.probe)
+        .map(c => {
+          (c.sourceId.contains(l1HintArb.io.out.bits.sourceId).asInstanceOf[Bool], c.sourceId.start.U)
+        }).head
+
+      l1HintArb.io.in <> VecInit(slices_l1Hint)
+      io.l2_hint.valid := l1HintArb.io.out.fire && sourceIsDcache
+      io.l2_hint.bits := l1HintArb.io.out.bits.sourceId - dcacheSourceIdStart
+      // [TMP] always ready for grant hint
+      l1HintArb.io.out.ready := true.B
+
+      hintChosen := l1HintArb.io.chosen
+      hintFire := io.l2_hint.valid
+    }
 
     val topDown = topDownOpt.map(_ => Module(new TopDownMonitor()(p.alterPartial {
       case EdgeInKey => node.in.head._2
