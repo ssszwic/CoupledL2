@@ -96,8 +96,8 @@ class MainPipe(implicit p: Parameters) extends L2Module {
     val nestedwb = Output(new NestedWriteback)
     val nestedwbData = Output(new DSBlock)
 
-    val l1Hint = ValidIO(new L2ToL1Hint())
-    val grantBufferHint = Flipped(ValidIO(new L2ToL1Hint()))
+    val l1Hint = DecoupledIO(new L2ToL1Hint())
+    val grantBufferHint = Flipped(DecoupledIO(new L2ToL1Hint()))
     val globalCounter = Input(UInt((log2Ceil(mshrsAll) + 1).W))
     /* send prefetchTrain to Prefetch to trigger a prefetch req */
     val prefetchTrain = prefetchOpt.map(_ => DecoupledIO(new PrefetchTrain))
@@ -611,7 +611,6 @@ class MainPipe(implicit p: Parameters) extends L2Module {
 
   val c = Seq(c_s5, c_s4, c_s3)
   val d = Seq(d_s5, d_s4, d_s3)
-  // DO NOT use TLArbiter because TLArbiter will send continuous beats for the same source
   val c_arb = Module(new Arbiter(io.toSourceC.bits.cloneType, c.size))
   val d_arb = Module(new Arbiter(io.toSourceD.bits.cloneType, d.size))
   c_arb.io.in <> c

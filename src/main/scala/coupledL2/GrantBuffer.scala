@@ -74,7 +74,7 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
     val grantStatus = Output(Vec(grantBufInflightSize, new GrantStatus))
 
     // generate hint signal for L1
-    val l1Hint = ValidIO(new L2ToL1Hint())
+    val l1Hint = DecoupledIO(new L2ToL1Hint())
     val globalCounter = Output(UInt((log2Ceil(mshrsAll) + 1).W))
   })
 

@@ -44,10 +44,10 @@ class CustomL1HintIOBundle(implicit p: Parameters) extends L2Bundle {
       val d    = Input(Bool())
   }
   val globalCounter   = Input(UInt((log2Ceil(mshrsAll) + 1).W))
-  val grantBufferHint = Flipped(ValidIO(new L2ToL1Hint()))
+  val grantBufferHint = Flipped(DecoupledIO(new L2ToL1Hint()))
 
   // output hint
-  val l1Hint = ValidIO(new L2ToL1Hint())
+  val l1Hint = DecoupledIO(new L2ToL1Hint())
 }
 
 
@@ -87,7 +87,7 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
   val s3_l2_hit_grant_data = task_s3.valid && !mshr_req_s3 && !need_mshr_s3 && task_s3.bits.fromA && task_s3.bits.opcode === AcquireBlock && !task_s3.bits.fromL2pft.getOrElse(false.B)
   val s4_l2_hit_grant_data = task_s4.valid && req_grantbuffer_next_cycle_s4 && task_s4.bits.opcode === GrantData && task_s4.bits.fromA && !task_s4.bits.mshrTask && !task_s4.bits.fromL2pft.getOrElse(false.B)
 
-  val hint_s1, hint_s2, hint_s3, hint_s4, hint_s5 = Wire(io.l1Hint.cloneType)
+  val hint_s1, hint_s2, hint_s3, hint_s4, hint_s5 = Wire(Valid(new L2ToL1Hint()))
   
   // S1 hint
   //    * l1 acquire and l2 miss situation, **no hit situation**
@@ -203,11 +203,18 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
   hint_s5.valid         := (validHint_s5 || validHintMiss_s5) && !impossible_pipe_hint
   hint_s5.bits.sourceId := task_s5.bits.sourceId
 
+  // add a hint queue that saves valid hint_s12345 when !io.hint.ready
+
   val hint_valid    = Seq(grantBufferHint.valid,         hint_s1.valid,         hint_s2.valid,         hint_s3.valid,         hint_s4.valid,         hint_s5.valid)
   val hint_sourceId = Seq(grantBufferHint.bits.sourceId, hint_s1.bits.sourceId, hint_s2.bits.sourceId, hint_s3.bits.sourceId, hint_s4.bits.sourceId, hint_s5.bits.sourceId)
 
+
+  io.grantBufferHint.ready := true.B
+
   io.l1Hint.valid         := VecInit(hint_valid).asUInt.orR
   io.l1Hint.bits.sourceId := ParallelMux(hint_valid zip hint_sourceId)
+
+
   // TODO: open this assert when hint is really correct for all situations
   // assert(PopCount(VecInit(hint_valid)) <= 1.U)
 

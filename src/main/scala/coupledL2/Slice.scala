@@ -108,7 +108,7 @@ class Slice()(implicit p: Parameters) extends L2Module {
   mainPipe.io.releaseBufResp_s3.valid := RegNext(releaseBuf.io.r.valid && releaseBuf.io.r.ready, false.B)
   mainPipe.io.releaseBufResp_s3.bits := releaseBuf.io.r.data
   mainPipe.io.fromReqArb.status_s1 := reqArb.io.status_s1
-  mainPipe.io.grantBufferHint := grantBuf.io.l1Hint
+  mainPipe.io.grantBufferHint <> grantBuf.io.l1Hint
   mainPipe.io.globalCounter := grantBuf.io.globalCounter
   mainPipe.io.taskInfo_s1 <> reqArb.io.taskInfo_s1
 
@@ -128,8 +128,7 @@ class Slice()(implicit p: Parameters) extends L2Module {
 
   sourceC.io.in <> mainPipe.io.toSourceC
 
-  io.l1Hint.valid := mainPipe.io.l1Hint.valid
-  io.l1Hint.bits := mainPipe.io.l1Hint.bits
+  io.l1Hint <> mainPipe.io.l1Hint
   mshrCtl.io.grantStatus := grantBuf.io.grantStatus
 
   grantBuf.io.d_task <> mainPipe.io.toSourceD
