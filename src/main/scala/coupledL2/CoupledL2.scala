@@ -21,7 +21,7 @@ package coupledL2
 
 import chisel3._
 import chisel3.util._
-import utility.{FastArbiter, Pipeline}
+import utility.{FastArbiter, Pipeline, RegNextN}
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.tilelink.TLMessages._
@@ -319,7 +319,7 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
         if(enableHintGuidedGrant) {
           // If the hint of slice X is selected at cycle T, then at cycle T + 3 we will try our best to select the grant of slice X.
           // If slice X has no grant at cycle T + 3, it means that the hint at cycle T is wrong, so relax the restriction on grant selection.
-          val sourceDCanGo = RegNextN(!hintFire || i.U === OHToUInt(hintChosen), hintCycleAhead - 1)
+          val sourceDCanGo = RegNextN(!hintFire || hintFire && i.U === hintChosen, hintCycleAhead) // HINTWARNING: TODO: consider this latency
           releaseSourceD(i) := sourceDCanGo && !slice.io.in.d.valid
 
           in.d.valid := slice.io.in.d.valid && (sourceDCanGo || Cat(releaseSourceD).orR)
@@ -378,7 +378,7 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
       // [TMP] always ready for grant hint
       l1HintArb.io.out.ready := true.B
 
-      hintChosen := l1HintArb.io.chosen
+      hintChosen := l1HintArb.io.chosen // THIS IS NOT ONE-HOT
       hintFire := io.l2_hint.valid
     }
 

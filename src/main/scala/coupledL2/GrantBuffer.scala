@@ -128,11 +128,11 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
     val task = new TaskBundle()
     val data = new DSBeat()
   }))
-
-  grantQueue.io.deq.ready := io.d.ready && !grantBufValid
+  val nextGrantCanGo = io.d.ready && !grantBufValid
+  grantQueue.io.deq.ready := nextGrantCanGo
 
   // if deqTask has data, send the first beat directly and save the remaining beat in grantBuf
-  when(deqValid && io.d.ready && !grantBufValid && deqTask.opcode(0)) {
+  when(deqValid && nextGrantCanGo && deqTask.opcode(0)) {
     grantBufValid := true.B
     grantBuf.task := deqTask
     grantBuf.data := deqData(1)
@@ -235,37 +235,35 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
   io.toReqArb.blockMSHRReqEntrance := noSpaceForMSHRReq
 
   // =========== generating Hint to L1 ===========
-  // TODO: the following keeps the exact same logic as before, but it needs serious optimization
-  val hintQueue = Module(new Queue(UInt(sourceIdBits.W), entries = mshrsAll))
+  val hintQueue = Module(new Queue(UInt(sourceIdBits.W), entries = mshrsAll, flow = true))
   // Total number of beats left to send in GrantBuf
-  // [This is better]
-  // val globalCounter = (grantQueue.io.count << 1.U).asUInt + grantBufValid.asUInt // entries * 2 + grantBufValid
   val globalCounter = RegInit(0.U((log2Ceil(grantBufSize) + 1).W))
-  when(io.d_task.fire()) {
-    val hasData = io.d_task.bits.task.opcode(0)
-    when(hasData) {
-      globalCounter := globalCounter + 1.U // counter = counter + 2 - 1
-    }.otherwise {
-      globalCounter := globalCounter // counter = counter + 1 - 1
-    }
-  }.otherwise {
-    globalCounter := Mux(globalCounter === 0.U, 0.U, globalCounter - 1.U) // counter = counter - 1
+  val hasData = dtaskOpcode(0)
+  when(io.d_task.fire) {
+    globalCounter := MuxLookup(Cat(hasData, io.d.ready), globalCounter, Seq(
+      Cat(false.B, false.B) -> (globalCounter + 1.U),
+      Cat(false.B, true.B) -> (globalCounter),
+      Cat(true.B, false.B) -> (globalCounter + 2.U),
+      Cat(true.B, true.B) -> (globalCounter + 1.U)
+    ))
+  }.elsewhen(io.d.fire) {
+    globalCounter := Mux(globalCounter === 0.U, 0.U, globalCounter - 1.U)
   }
+  // tell CustomL1Hint about the delay in GrantBuf
+  io.globalCounter := globalCounter
 
+  // HintWARNING: send hint for Grant?
   // if globalCounter >= 3, it means the hint that should be sent is in GrantBuf
-  when(globalCounter >= 3.U) {
+  when(globalCounter >= 3.U && dtaskOpcode === GrantData) {
     hintQueue.io.enq.valid := true.B
     hintQueue.io.enq.bits := io.d_task.bits.task.sourceId
   }.otherwise {
     hintQueue.io.enq.valid := false.B
     hintQueue.io.enq.bits := 0.U(sourceIdBits.W)
   }
-  hintQueue.io.deq.ready := true.B
+  hintQueue.io.deq.ready := nextGrantCanGo
 
-  // tell CustomL1Hint about the delay in GrantBuf
-  io.globalCounter := globalCounter
-
-  io.l1Hint.valid := hintQueue.io.deq.valid
+  io.l1Hint.valid := hintQueue.io.deq.valid && nextGrantCanGo
   io.l1Hint.bits.sourceId := hintQueue.io.deq.bits
 
   // =========== XSPerf ===========
