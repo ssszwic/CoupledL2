@@ -292,13 +292,6 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
       if(bankBits == 0) true.B else set(bankBits - 1, 0) === bankId.U
     }
 
-    def RegNextN[T <: Data](data: T, n: Int): T = {
-      if(n == 1)
-        RegNext(data)
-      else
-        RegNextN(data, n - 1)
-    }
-
     val hintChosen = Wire(UInt(banks.W))
     val hintFire = Wire(Bool())
     val releaseSourceD = Wire(Vec(banks, Bool()))
@@ -374,7 +367,7 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
 
       l1HintArb.io.in <> VecInit(slices_l1Hint)
       io.l2_hint.valid := l1HintArb.io.out.fire && sourceIsDcache
-      io.l2_hint.bits := l1HintArb.io.out.bits.sourceId - dcacheSourceIdStart
+      io.l2_hint.bits := l1HintArb.io.out.bits.sourceId - dcacheSourceIdStart // HINTWARNING: this signal is missing in verilog
       // [TMP] always ready for grant hint
       l1HintArb.io.out.ready := true.B
 
