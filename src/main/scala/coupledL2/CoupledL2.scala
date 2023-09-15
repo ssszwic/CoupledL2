@@ -310,9 +310,15 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
         }
         slice.io.in <> in
         if(enableHintGuidedGrant) {
-          // If the hint of slice X is selected at cycle T, then at cycle T + 3 we will try our best to select the grant of slice X.
-          // If slice X has no grant at cycle T + 3, it means that the hint at cycle T is wrong, so relax the restriction on grant selection.
-          val sourceDCanGo = RegNextN(!hintFire || hintFire && i.U === hintChosen, hintCycleAhead) // HINTWARNING: TODO: consider this latency
+          // If the hint of slice X is selected at cycle T, then at cycle (T + 3) & (T + 4)
+          // we will try our best to select the grant of slice X.
+          // If slice X has no grant then, it means that the hint at cycle T is wrong,
+          // so we relax the restriction on grant selection.
+          // HINTWARNING: TODO: consider this latency (whether to latch, we must match sourceD)
+          val sourceDCanGo = (RegNextN(!hintFire, hintCycleAhead) && RegNextN(!hintFire, hintCycleAhead + 1)) ||
+            RegNextN(hintFire && i.U === hintChosen, hintCycleAhead) ||
+            RegNextN(hintFire && i.U === hintChosen, hintCycleAhead + 1)
+
           releaseSourceD(i) := sourceDCanGo && !slice.io.in.d.valid
 
           in.d.valid := slice.io.in.d.valid && (sourceDCanGo || Cat(releaseSourceD).orR)
@@ -368,8 +374,8 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
       l1HintArb.io.in <> VecInit(slices_l1Hint)
       io.l2_hint.valid := l1HintArb.io.out.fire && sourceIsDcache
       io.l2_hint.bits := l1HintArb.io.out.bits.sourceId - dcacheSourceIdStart // HINTWARNING: this signal is missing in verilog
-      // [TMP] always ready for grant hint
-      l1HintArb.io.out.ready := true.B
+      // continuous hints can only be sent every two cycle, since GrantData takes two cycles
+      l1HintArb.io.out.ready := !RegNext(io.l2_hint.valid, false.B)
 
       hintChosen := l1HintArb.io.chosen // THIS IS NOT ONE-HOT
       hintFire := io.l2_hint.valid

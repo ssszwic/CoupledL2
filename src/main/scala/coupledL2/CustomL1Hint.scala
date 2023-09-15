@@ -116,6 +116,12 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
   hint_s4.valid := (chn_s4 && chnCntMatch_s4) || (mshr_s4 && mshrCntMatch_s4)
   hint_s4.bits.sourceId := task_s4.bits.sourceId
 
+  // TODO: EXCEPTION detected
+  // now s4 & s5 is empty, s3 is chnHit, s2 is mshrTask, we suppose chnHit@s3 should Hint
+  // the next cycle, s4 is chnHit, s3 is mshrTask, and mshrTask@s3 will enter GrantBuf prior to chnHit
+  // so Hint for chnTask is wrong (under current logic, chnTask will also Hint @s5, double Hint)
+  // (Hope this is rare
+
   // =========== S3 Hint ===========
   val chn_s3  = task_s3.valid && !mshrReq_s3 && !need_mshr_s3 && task_s3.bits.fromA && task_s3.bits.opcode === AcquireBlock
   val mshr_s3 =          d_s3 &&  mshrReq_s3 &&                  task_s3.bits.fromA && task_s3.bits.opcode === GrantData
@@ -139,7 +145,7 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
     ) === hintCycleAhead.U
 
   hint_s3.valid := (chn_s3 && chnCntMatch_s3) || (mshr_s3 && mshrCntMatch_s3)
-  hint_s3.bits.sourceId := task_s4.bits.sourceId
+  hint_s3.bits.sourceId := task_s3.bits.sourceId
 
   // =========== S2 Hint ===========
   hint_s2.valid := false.B

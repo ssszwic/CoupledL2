@@ -254,14 +254,14 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
 
   // HintWARNING: send hint for Grant?
   // if globalCounter >= 3, it means the hint that should be sent is in GrantBuf
-  when(globalCounter >= 3.U && dtaskOpcode === GrantData) {
+  when(globalCounter >= 3.U && io.d_task.fire && dtaskOpcode === GrantData) {
     hintQueue.io.enq.valid := true.B
     hintQueue.io.enq.bits := io.d_task.bits.task.sourceId
   }.otherwise {
     hintQueue.io.enq.valid := false.B
     hintQueue.io.enq.bits := 0.U(sourceIdBits.W)
   }
-  hintQueue.io.deq.ready := nextGrantCanGo
+  hintQueue.io.deq.ready := nextGrantCanGo && io.l1Hint.ready
 
   io.l1Hint.valid := hintQueue.io.deq.valid && nextGrantCanGo
   io.l1Hint.bits.sourceId := hintQueue.io.deq.bits
