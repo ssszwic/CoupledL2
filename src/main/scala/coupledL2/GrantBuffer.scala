@@ -239,7 +239,7 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
   // Total number of beats left to send in GrantBuf
   val globalCounter = RegInit(0.U((log2Ceil(grantBufSize) + 1).W))
   val hasData = dtaskOpcode(0)
-  when(io.d_task.fire) {
+  when(io.d_task.fire && dtaskOpcode =/= HintAck) {
     globalCounter := MuxLookup(Cat(hasData, io.d.ready), globalCounter, Seq(
       Cat(false.B, false.B) -> (globalCounter + 1.U),
       Cat(false.B, true.B) -> (globalCounter),
