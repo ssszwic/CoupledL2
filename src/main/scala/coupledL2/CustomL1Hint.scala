@@ -96,9 +96,9 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
 
   /** For ChnTask@s4
    * it must wait until @s5 to enter GrantBuf, so it will fire at D after (2 + globalCounter) cycles;
-   * if s5 has data, an extra cycle is needed, so it will fire at D after (3 + globalCounter) cycles;
+   * if s5 has data, two extra cycles are needed, so it will fire at D after (4 + globalCounter) cycles;
    */
-  val chnCntMatch_s4 = Mux(d_s5 && hasData_s5, (globalCounter + 3.U) === hintCycleAhead.U,
+  val chnCntMatch_s4 = Mux(d_s5 && hasData_s5, (globalCounter + 4.U) === hintCycleAhead.U,
     (globalCounter + 2.U) === hintCycleAhead.U)
 
   /** For MSHRTask@s4
