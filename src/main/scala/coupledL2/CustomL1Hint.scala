@@ -54,7 +54,6 @@ class CustomL1HintIOBundle(implicit p: Parameters) extends L2Bundle {
 // grantData hint interface
 // use this interface to give a hint to l1 before actually sending a GrantData
 
-// TODO: bit extended to UInt
 class CustomL1Hint(implicit p: Parameters) extends L2Module {
   val io = IO(new CustomL1HintIOBundle)
 
@@ -133,11 +132,11 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
   /** For MSHRTask@s3
    * if s4/s5 has no task, task@s3 will enter GrantBuf the next cycle, so firing at D after (1 + globalCounter) cycles;
    * any task @s4/s5 will add an additional cycle, taskHasData @s4/s5 will add an extra cycle;
-   * task @s5 and chnTaskHit@s4 will add an another extra cycle
+   * task @s5 and chnTaskHit@s4 (with data) will add another extra (two) cycle
    */
   val mshrCntMatch_s3 = (globalCounter + 1.U + d_s5.asUInt + d_s4.asUInt +
     (d_s5 & hasData_s5).asUInt + (d_s4 & hasData_s4).asUInt +
-    (d_s5 & (chnHit_s4 + chnHit_s4 & hasData_s4)).asUInt
+    (d_s5 & chnHit_s4).asUInt + (d_s5 & chnHit_s4 & hasData_s4).asUInt
     ) === hintCycleAhead.U
 
   hint_s3.valid := (chn_s3 && chnCntMatch_s3) || (mshr_s3 && mshrCntMatch_s3)
@@ -150,13 +149,14 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
 
   /** For MSHRTask@s2
    * Basics are the same as above (s3/4/5 has task, and has data)
-   * The following may be too complicated to make it 100% correct
+   * The rest may be too complicated to make it 100% correct
+   * (But since most of the time, cache accesses are sparse, it should be sufficient :)
    */
-   val chnHit_s3 = !d_s3 && task_s3.valid && !mshrReq_s3 && task_s3.bits.fromA
+  val chnHit_s3 = !d_s3 && task_s3.valid && !mshrReq_s3 && task_s3.bits.fromA
   val mshrCntMatch_s2 = (globalCounter + 2.U + d_s3.asUInt + d_s4.asUInt + d_s5.asUInt +
     (d_s3 & hasData_s3).asUInt + (d_s4 & hasData_s4).asUInt + (d_s5 & hasData_s5).asUInt +
-    (chnHit_s4 + chnHit_s4 & hasData_s4) +
-    d_s4 & d_s5 & (chnHit_s3 + chnHit_s3 & hasData_s3)
+    chnHit_s4.asUInt + (chnHit_s4 & hasData_s4).asUInt +        // chnHit@s4 will surely block mshrTask@s2
+    (d_s4 & d_s5 & chnHit_s3).asUInt + (d_s4 & d_s5 & chnHit_s3 & hasData_s3).asUInt // chnHit@s3 will block only when d_s4 & d_s5
     ) === hintCycleAhead.U
 
   hint_s2.valid := mshr_s2 && mshrCntMatch_s2
