@@ -360,9 +360,11 @@ class CoupledL2(implicit p: Parameters) extends LazyModule with HasCoupledL2Para
     }
 
     if(enableHintGuidedGrant) {
+      // for timing consideration, hint should latch one cycle before sending to L1
+      // instead of adding a Pipeline/Queue to latch here, we just set hintQueue in GrantBuf & CustomL1Hint flow=false
       val l1HintArb = Module(new Arbiter(new L2ToL1Hint(), slices.size))
       val slices_l1Hint = slices.zipWithIndex.map {
-        case (s, i) => s.io.l1Hint // TODO: latch for timing consideration
+        case (s, i) => s.io.l1Hint
       }
       // should only Hint for DCache
       val (sourceIsDcache, dcacheSourceIdStart) = node.in.head._2.client.clients

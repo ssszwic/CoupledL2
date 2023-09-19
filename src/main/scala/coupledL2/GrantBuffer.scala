@@ -235,7 +235,7 @@ class GrantBuffer(implicit p: Parameters) extends L2Module {
   io.toReqArb.blockMSHRReqEntrance := noSpaceForMSHRReq
 
   // =========== generating Hint to L1 ===========
-  val hintQueue = Module(new Queue(UInt(sourceIdBits.W), entries = mshrsAll, flow = true))
+  val hintQueue = Module(new Queue(UInt(sourceIdBits.W), entries = mshrsAll))
   // Total number of beats left to send in GrantBuf
   val globalCounter = RegInit(0.U((log2Ceil(grantBufSize) + 1).W))
   val hasData = dtaskOpcode(0)

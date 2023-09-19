@@ -176,7 +176,7 @@ class CustomL1Hint(implicit p: Parameters) extends L2Module {
   // =========== Arb all hints ===========
   // saves valid hint_s12345 when !io.hint.ready
   // HINTWARNING: we may quit setting flow=true, and move the latch1 that is previously at CoupledL2-L1 to the hintqueue here
-  val mpHintQueue = Module(new Queue(new L2ToL1Hint(), entries = 8, flow = true)) // HINTWARNING: assert queue never overflow (enq !ready & valid)
+  val mpHintQueue = Module(new Queue(new L2ToL1Hint(), entries = 8)) // HINTWARNING: assert queue never overflow (enq !ready & valid)
 
   val mpHints = Seq(hint_s5, hint_s4, hint_s3, hint_s2, hint_s1)
   val mpHintValids = mpHints.map(_.valid)
