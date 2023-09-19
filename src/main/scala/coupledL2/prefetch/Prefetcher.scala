@@ -144,9 +144,9 @@ class Prefetcher(implicit p: Parameters) extends PrefetchModule {
       val bop = Module(new BestOffsetPrefetch()(p.alterPartial({
         case L2ParamKey => p(L2ParamKey).copy(prefetch = Some(BOPParameters()))
       })))
-      val tp = Module(new TemporalPrefetch()(p.alterPartial({
-        case L2ParamKey => p(L2ParamKey).copy(prefetch = Some(TPParameters()))
-      })))
+//      val tp = Module(new TemporalPrefetch()(p.alterPartial({
+//        case L2ParamKey => p(L2ParamKey).copy(prefetch = Some(TPParameters()))
+//      })))
       val pftQueue = Module(new PrefetchQueue)
       val pipe = Module(new Pipeline(io.req.bits.cloneType, 1))
       val l2_pf_en = RegNextN(io_l2_pf_en, 2, Some(true.B))
@@ -166,29 +166,31 @@ class Prefetcher(implicit p: Parameters) extends PrefetchModule {
       // prefetch from local prefetchers: BOP & TP
       bop.io.train <> io.train
       bop.io.resp <> io.resp
-      tp.io.train <> io.train
-      tp.io.resp <> io.resp
+//      tp.io.train <> io.train
+//      tp.io.resp <> io.resp
 
       // send to prq
-      pftQueue.io.enq.valid := pfRcv.io.req.valid || (l2_pf_en && (bop.io.req.valid || tp.io.req.valid))
+//      pftQueue.io.enq.valid := pfRcv.io.req.valid || (l2_pf_en && (bop.io.req.valid || tp.io.req.valid))
+      pftQueue.io.enq.valid := pfRcv.io.req.valid || (l2_pf_en && bop.io.req.valid)
       pftQueue.io.enq.bits := Mux(pfRcv.io.req.valid,
         pfRcv.io.req.bits,
-        Mux(bop.io.req.valid,
-          bop.io.req.bits,
-          tp.io.req.bits
-        )
+        bop.io.req.bits,
+//      Mux(bop.io.req.valid,
+//          bop.io.req.bits,
+//          tp.io.req.bits
+//        )
       )
       pfRcv.io.req.ready := true.B
       bop.io.req.ready := true.B
-      tp.io.req.ready := !pfRcv.io.req.valid && !bop.io.req.valid
+//      tp.io.req.ready := !pfRcv.io.req.valid && !bop.io.req.valid
       pipe.io.in <> pftQueue.io.deq
       io.req <> pipe.io.out
 
       XSPerfAccumulate(cacheParams, "prefetch_req_fromSMS", pfRcv.io.req.valid)
       XSPerfAccumulate(cacheParams, "prefetch_req_fromBOP", l2_pf_en && bop.io.req.valid)
-      XSPerfAccumulate(cacheParams, "prefetch_req_fromTP", l2_pf_en && tp.io.req.valid)
-      XSPerfAccumulate(cacheParams, "prefetch_req_SMS_other_overlapped",
-        pfRcv.io.req.valid && l2_pf_en && (bop.io.req.valid || tp.io.req.valid))
-    case _ => assert(cond = false, "Unknown prefetcher")
+//      XSPerfAccumulate(cacheParams, "prefetch_req_fromTP", l2_pf_en && tp.io.req.valid)
+//      XSPerfAccumulate(cacheParams, "prefetch_req_SMS_other_overlapped",
+//        pfRcv.io.req.valid && l2_pf_en && (bop.io.req.valid || tp.io.req.valid))
+//    case _ => assert(cond = false, "Unknown prefetcher")
   }
 }
